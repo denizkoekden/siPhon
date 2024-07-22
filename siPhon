@@ -8,8 +8,8 @@
 ### sense of them.
 ##################################################
 #### Chris Smith, 2022
+#### Deniz K., 2024 - Cleanup the code
 ##################################################
-
 
 import os, sys, re
 import shutil
@@ -25,9 +25,7 @@ import magic
 from tqdm import tqdm
 
 ap = argparse.ArgumentParser()
-#Setting these to placeholder values in the main parser ensures that they're
-# always defined, so we chan check against None to see whether they've been used.
-ap.set_defaults(song=None,album=None,artist=None,cmd=None) 
+ap.set_defaults(song=None, album=None, artist=None, cmd=None) 
 ap.add_argument('-i','--base',required=True,help="Location of iPod")
 ap.add_argument('--db',help="Location of database")
 sp = ap.add_subparsers(title="Commands",help="Specify <command> -h for help on a command.")
@@ -54,245 +52,238 @@ p_get.set_defaults(cmd='get')
 args = ap.parse_args()
 
 def writedb():
-	rv = True
-	try:
-		if not os.path.exists(dbDir):
-			os.mkdir(dbDir)
-		albF = open(dbAlbums,'wb')
-		artF = open(dbArtists,'wb')
-		songF = open(dbSongs,'wb')
-		fileF = open(dbFiles,'wb')
-		pickle.dump(Albums,albF)
-		pickle.dump(Artists,artF)
-		pickle.dump(Songs,songF)
-		pickle.dump(Files,fileF)
-		albF.close()
-		artF.close()
-		songF.close()
-		fileF.close()
-	except Exception as e:
-		print("Can't write database.")
-		rv = False
-	return rv
+    rv = True
+    try:
+        if not os.path.exists(dbDir):
+            os.mkdir(dbDir)
+        albF = open(dbAlbums,'wb')
+        artF = open(dbArtists,'wb')
+        songF = open(dbSongs,'wb')
+        fileF = open(dbFiles,'wb')
+        pickle.dump(Albums,albF)
+        pickle.dump(Artists,artF)
+        pickle.dump(Songs,songF)
+        pickle.dump(Files,fileF)
+        albF.close()
+        artF.close()
+        songF.close()
+        fileF.close()
+    except Exception as e:
+        print("Can't write database.")
+        rv = False
+    return rv
 
 def readdb():
-	global Albums, Artists, Songs, Files
-	rv = True
-	try:
-		albF = open(dbAlbums,'rb')
-		artF = open(dbArtists,'rb')
-		songF = open(dbSongs,'rb')
-		fileF = open(dbFiles,'rb')
-		Albums = pickle.load(albF)
-		Artists = pickle.load(artF)
-		Songs = pickle.load(songF)
-		Files = pickle.load(fileF)
-		albF.close()
-		artF.close()
-		songF.close()
-		fileF.close()
-	except Exception as e:
-		print("Can't read database.  Try scan first.")
-		rv = False
-	return rv
+    global Albums, Artists, Songs, Files
+    rv = True
+    try:
+        albF = open(dbAlbums,'rb')
+        artF = open(dbArtists,'rb')
+        songF = open(dbSongs,'rb')
+        fileF = open(dbFiles,'rb')
+        Albums = pickle.load(albF)
+        Artists = pickle.load(artF)
+        Songs = pickle.load(songF)
+        Files = pickle.load(fileF)
+        albF.close()
+        artF.close()
+        songF.close()
+        fileF.close()
+    except Exception as e:
+        print("Can't read database.  Try scan first.")
+        rv = False
+    return rv
 
 def rmdb():
-	rv = True
-	if args.db:
-		print("Won't clean a database specified on the command-line. Delete it manually.")
-		return False
-	try:
-		os.unlink(dbAlbums)
-		os.unlink(dbArtists)
-		os.unlink(dbSongs)
-		os.unlink(dbFiles)
-		os.rmdir(dbDir)
-	except Exception as e:
-		rv = False
-	return rv
+    rv = True
+    if args.db:
+        print("Won't clean a database specified on the command-line. Delete it manually.")
+        return False
+    try:
+        os.unlink(dbAlbums)
+        os.unlink(dbArtists)
+        os.unlink(dbSongs)
+        os.unlink(dbFiles)
+        os.rmdir(dbDir)
+    except Exception as e:
+        rv = False
+    return rv
 
 #Clean up tags
 def tsanitize(st):
-	st = str(st)
-	st = re.sub("^\['",'',st)
-	st = re.sub('^\["','',st)
-	st = re.sub("'\]$",'',st)
-	st = re.sub('"\]$','',st)
-	st = re.sub("^\s+",'',st)
-	st = re.sub("\s+$",'',st)
-	return st
+    st = str(st)
+    st = re.sub(r"^\['",'',st)
+    st = re.sub(r'^\["','',st)
+    st = re.sub(r"'\]$",'',st)
+    st = re.sub(r'"\]$','',st)
+    st = re.sub(r"^\s+",'',st)
+    st = re.sub(r"\s+$",'',st)
+    return st
 
 #Clean up filenames
 def fsanitize(st):
-	st = re.sub('[^a-zA-Z0-9 -_.,]','',st)
-	st = re.sub('\s+$','',st)
-	st = re.sub('^\s+','',st)
-	return st
+    st = re.sub(r'[^a-zA-Z0-9 -_.,]','',st)
+    st = re.sub(r'\s+$','',st)
+    st = re.sub(r'^\s+','',st)
+    return st
 
 def scan():
-	os.chdir(args.base)
-	for base, dirs, files in os.walk("."):
-		for file in (progress := tqdm(files)):
-			m = ""
-			fn = os.path.join(base,file)
-			progress.set_description(fn)
-			try:
-				m = magic.from_file(fn)
-			except Exception as e:
-				pass
-			if re.search('audio',m,re.IGNORECASE):
-				if re.search('alac',m,re.IGNORECASE) or re.search('aac',m,re.IGNORECASE):
-					fmt = 'm4a'
-				else: 
-					#Probably
-					fmt = 'mp3'
-				try:
-					tags = mutagen.File(fn)
-				except:
-					pass
-				if tags:
-					album = "Unknown Album"
-					artist = "Unknown"
-					trnum = ""
-					trnam = "Untitled"
-					if 'TRCK' in tags:
-						trnum = tags['TRCK']
-					else:
-						if 'trkn' in tags:
-							trnum = str(tags['trkn'])	
-					if 'TIT2' in tags:
-						trnam = str(tags['TIT2'])
-					else:
-						if '©nam' in tags:
-							trnam = str(tags['©nam'])
-					if 'TALB' in tags:
-						album = str(tags['TALB'])
-					else:
-						if '©alb' in tags:
-							album = str(tags['©alb'])
-					if 'TPE1' in tags:
-						artist = str(tags['TPE1'])
-					else:
-						if '©ART' in tags:
-							artist = str(tags['©ART'])
+    os.chdir(args.base)
+    for base, dirs, files in os.walk("."):
+        for file in (progress := tqdm(files)):
+            m = ""
+            fn = os.path.join(base,file)
+            progress.set_description(fn)
+            try:
+                m = magic.from_file(fn)
+            except Exception as e:
+                pass
+            if re.search('audio',m,re.IGNORECASE):
+                if re.search('alac',m,re.IGNORECASE) or re.search('aac',m,re.IGNORECASE):
+                    fmt = 'm4a'
+                else: 
+                    fmt = 'mp3'
+                try:
+                    tags = mutagen.File(fn)
+                except:
+                    pass
+                if tags:
+                    album = "Unknown Album"
+                    artist = "Unknown"
+                    trnum = ""
+                    trnam = "Untitled"
+                    if 'TRCK' in tags:
+                        trnum = tags['TRCK']
+                    else:
+                        if 'trkn' in tags:
+                            trnum = str(tags['trkn'])	
+                    if 'TIT2' in tags:
+                        trnam = str(tags['TIT2'])
+                    else:
+                        if '©nam' in tags:
+                            trnam = str(tags['©nam'])
+                    if 'TALB' in tags:
+                        album = str(tags['TALB'])
+                    else:
+                        if '©alb' in tags:
+                            album = str(tags['©alb'])
+                    if 'TPE1' in tags:
+                        artist = str(tags['TPE1'])
+                    else:
+                        if '©ART' in tags:
+                            artist = str(tags['©ART'])
 
-					artist = tsanitize(artist)
-					album = tsanitize(album)
-					trnam = tsanitize(trnam)
-					trnum = tsanitize(trnum)
+                    artist = tsanitize(artist)
+                    album = tsanitize(album)
+                    trnam = tsanitize(trnam)
+                    trnum = tsanitize(trnum)
 
-					#if (album == "Unknown Album"):
-					#	print("NO ALBUM: ")
-					#	print(tags)
-					#Fix the stupid 01/08-type track numbers.
-					trnum = re.sub('.*?([0-9]+).*',r"\1",trnum)
+                    trnum = re.sub('.*?([0-9]+).*',r"\1",trnum)
 
-					if not trnam in Songs:
-						Songs[trnam] = []
-					if not artist in Artists:
-						Artists[artist] = []
-					if not album in Albums:
-						Albums[album] = []
-					if not file in Files:
-						Files[fn] = []
-					Songs[trnam].append(fn)
-					Albums[album].append(fn)
-					Artists[artist].append(fn)
-					Files[fn] = { 'artist' : artist, 'album' : album, 'trnum' : trnum, 'trnam' : trnam, 'fmt' : fmt }
-	writedb()
+                    if not trnam in Songs:
+                        Songs[trnam] = []
+                    if not artist in Artists:
+                        Artists[artist] = []
+                    if not album in Albums:
+                        Albums[album] = []
+                    if not file in Files:
+                        Files[fn] = []
+                    Songs[trnam].append(fn)
+                    Albums[album].append(fn)
+                    Artists[artist].append(fn)
+                    Files[fn] = { 'artist' : artist, 'album' : album, 'trnum' : trnum, 'trnam' : trnam, 'fmt' : fmt }
+    writedb()
 
 def find(artist=args.artist,album=args.album,trnam=args.song):
-	flist = Files
-	if trnam and Songs.has_key(trnam):
-		if not trnam in Songs:
-			print("No songs matching " + trnam)
-			return {}
-		flist = [ file for file in flist if file in Songs[trnam] ]
-	if album:
-		if not album in Albums:
-			print("No albums matching " + album)
-			return ()
-		flist = [ file for file in flist if file in Albums[album] ]
-	if artist:
-		if not artist in Artists:
-			print("No artists matching " + artist)
-			return {}
-		flist = [ file for file in flist if file in Artists[artist] ]
-	return flist
+    flist = Files
+    if trnam and Songs.has_key(trnam):
+        if not trnam in Songs:
+            print("No songs matching " + trnam)
+            return {}
+        flist = [ file for file in flist if file in Songs[trnam] ]
+    if album:
+        if not album in Albums:
+            print("No albums matching " + album)
+            return ()
+        flist = [ file for file in flist if file in Albums[album] ]
+    if artist:
+        if not artist in Artists:
+            print("No artists matching " + artist)
+            return {}
+        flist = [ file for file in flist if file in Artists[artist] ]
+    return flist
 
 def ls():
-	if not readdb():
-		return False
-	for file in find():
-		print("Artist: " + Files[file]['artist'] + " / Album: " + Files[file]['album'])
-		print("Name: " + Files[file]['trnam'] + " / File: " + file)
-		print("--------")
-def lsartists():
-	if not readdb():
-		return False
-	for a in Artists.keys():
-		print(a)
-def lsalbums():
-	if not readdb():
-		return False
-	for a in Albums.keys():
-			print(a)
-def get():
-	if not readdb():
-		return False
-	os.chdir(args.base)
-	for source in (progress := tqdm(find())): 
-		f = Files[source]
-		ddir = os.path.join(args.dest,fsanitize(f['artist']),fsanitize(f['album']))
-		dname = ""
-		if (f['trnum'] != ""):
-			dname = f['trnum'] + ". "
-		dname = dname + f['trnam'] + "." + f['fmt']
-		dname = fsanitize(dname)
-        
-		progress.set_description(os.path.join(ddir,dname))
-		#Use os.mkdirs to make all the directories at once.
-		try:
-			os.makedirs(ddir, exist_ok=True)
-		except Exception as e:
-			print("Can't create " + ddir)
-		try:
-			shutil.copyfile(source,os.path.join(ddir,dname))
-		except Exception as e:
-			print("Can't create " + os.path.join(ddir,dname))
+    if not readdb():
+        return False
+    for file in find():
+        print("Artist: " + Files[file]['artist'] + " / Album: " + Files[file]['album'])
+        print("Name: " + Files[file]['trnam'] + " / File: " + file)
+        print("--------")
 
+def lsartists():
+    if not readdb():
+        return False
+    for a in Artists.keys():
+        print(a)
+
+def lsalbums():
+    if not readdb():
+        return False
+    for a in Albums.keys():
+        print(a)
+
+def get():
+    if not readdb():
+        return False
+    os.chdir(args.base)
+    for source in (progress := tqdm(find())): 
+        f = Files[source]
+        ddir = os.path.join(args.dest,fsanitize(f['artist']),fsanitize(f['album']))
+        dname = ""
+        if (f['trnum'] != ""):
+            dname = f['trnum'] + ". "
+        dname = dname + f['trnam'] + "." + f['fmt']
+        dname = fsanitize(dname)
+        
+        progress.set_description(os.path.join(ddir,dname))
+        try:
+            os.makedirs(ddir, exist_ok=True)
+        except Exception as e:
+            print("Can't create " + ddir)
+        try:
+            shutil.copyfile(source,os.path.join(ddir,dname))
+        except Exception as e:
+            print("Can't create " + os.path.join(ddir,dname))
 
 if os.path.isdir(args.base):
-	if args.db:
-		dbDir       = args.db
-	else:
-		dbDir= os.path.join(args.base,"siPhon-db")
-	dbArtists       = os.path.join(dbDir,"artists.db")
-	Artists         = {}
-	dbAlbums        = os.path.join(dbDir,"albums.db")
-	Albums          = {}
-	dbSongs         = os.path.join(dbDir,"songs.db")
-	Songs           = {}
-	dbFiles         = os.path.join(dbDir,"files.db")
-	Files           = {}
+    if args.db:
+        dbDir = args.db
+    else:
+        dbDir= os.path.join(args.base,"siPhon-db")
+    dbArtists = os.path.join(dbDir,"artists.db")
+    Artists = {}
+    dbAlbums = os.path.join(dbDir,"albums.db")
+    Albums = {}
+    dbSongs = os.path.join(dbDir,"songs.db")
+    Songs = {}
+    dbFiles = os.path.join(dbDir,"files.db")
+    Files = {}
 
-	if not args.cmd:
-		print("Please specify a command.")
-	else:
-		if args.cmd == 'scan':
-			scan()
-		if args.cmd == 'clean':
-			rmdb()
-		if args.cmd == 'list':
-			ls()
-		if args.cmd == 'get':
-			get()
-		if args.cmd == 'artists':
-			lsartists()
-		if args.cmd == 'albums':
-			lsalbums()
-
+    if not args.cmd:
+        print("Please specify a command.")
+    else:
+        if args.cmd == 'scan':
+            scan()
+        if args.cmd == 'clean':
+            rmdb()
+        if args.cmd == 'list':
+            ls()
+        if args.cmd == 'get':
+            get()
+        if args.cmd == 'artists':
+            lsartists()
+        if args.cmd == 'albums':
+            lsalbums()
 else:
-	print("Root of collection not available: " + args.base)
-
-
+    print("Root of collection not available: " + args.base)
